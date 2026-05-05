@@ -1,0 +1,58 @@
+name: Terraform Plan
+run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+jobs:
+  terraform-plan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.14.9
+          terraform_wrapper: false
+      - name: Check out repository code
+        uses: actions/checkout@v6
+      - name: Install AWS cli
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install --update
+      - name: Install jq
+        run: |
+          wget https://github.com/jqlang/jq/releases/latest/download/jq-linux-amd64 -O jq
+          chmod +x jq
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+      - name: Initialize Terraform
+        run: terraform init
+      - name: Terraform plan
+        run: terraform plan -out=out.tfplan
+      - name: Save Terraform plan in s3
+        env:
+          GH_REPO: "${{ github.repository }}"
+          GH_PR_NUMBER: "${{ github.event.pull_request.number }}"
+          S3_BUCKET: "terraform-139727352662-eu-west-1"
+        run: |
+          plane_time=$(terraform show -json out.tfplan | jq -r .timestamp)
+          plan_file=$(date -u -d "$plane_time" +"%Y-%m-%dT%H-%M-%SZ").tfplan
+          aws s3 cp out.tfplan "s3://$S3_BUCKET/$GH_REPO/$GH_PR_NUMBER/$plan_file"
+      - name: Write plan to PR comment
+        env:
+          GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+        run: |
+          plan_output=$(terraform show -no-color out.tfplan | head -c 60000)
+          {
+            echo "Terraform Plan Output:"
+            echo '```'
+            echo "$plan_output"
+            echo '```'
+          } > plan_output.txt
+          gh pr comment ${{ github.event.pull_request.number }} --body-file=plan_output.txt

@@ -7,7 +7,7 @@ on:
     branches: ["main"]
 
 jobs:
-  terraform-plan:
+  terraform-apply:
     runs-on: ubuntu-latest
     steps:
       # - name: Set up Terraform

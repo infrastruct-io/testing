@@ -46,7 +46,9 @@ jobs:
             echo "No PR number found"
             exit 1
           fi
-      - name: Get Terraform plan from s3
+      - name: Initialize Terraform
+        run: terraform init
+      - name: Get terraform plan from s3
         env:
           GH_REPO: "${{ github.repository }}"
           GH_PR_NUMBER: "${{ steps.extract_pr.outputs.pr_number }}"
@@ -58,10 +60,41 @@ jobs:
               --output text \
               --query "Contents[-1].Key")
           aws s3 cp "s3://$S3_BUCKET/$plan_file" existing.tfplan
-          terraform init
-          terraform plan -no-color -out=current.tfplan
-          jd  -opts='[{"@": ["timestamp"], "^": ["DIFF_OFF"]}]' <(terraform show -json existing.tfplan) <(terraform show -json current.tfplan)
-          terraform apply -auto-approve current.tfplan
+      - name: Create new terraform plan
+        run: terraform plan -out=current.tfplan
+      - name: Compare terraform plans
+        run: |
+          if jd -opts='[{"@": ["timestamp"], "^": ["DIFF_OFF"]}]' \
+                <(terraform show -json existing.tfplan) \
+                <(terraform show -json current.tfplan); then
+            echo "exit_code=0" >> $GITHUB_OUTPUT
+          else
+            echo "exit_code=$?" >> $GITHUB_OUTPUT
+          fi
+      - name: Cancel plan
+        if: steps.compare_terraform_plans.outputs.exit_code == '1'
+        run: |
+          plan_output=$(terraform show -no-color current.tfplan | head -c 60000)
+          {
+            echo 'Plan changed since last commit. Please review the new plan and re-submit.'
+            echo '```'
+            echo "$plan_output"
+            echo '```'
+          } > plan_output.txt
+          gh pr comment ${{ github.event.pull_request.number }} --body-file=plan_output.txt
+          exit 1
+      - name: Apply plan
+        if: steps.compare_terraform_plans.outputs.exit_code == '0'
+        run: |
+          output=$(terraform apply -auto-approve current.tfplan)
+          {
+            echo 'Plan applied successfully. Output:'
+            echo '```'
+            echo "$output"
+            echo '```'
+          } > output.txt
+          gh pr comment ${{ github.event.pull_request.number }} --body-file=output.txt || true
+
   terraform-plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -103,7 +136,6 @@ jobs:
         run: |
           plan_output=$(terraform show -no-color out.tfplan | head -c 60000)
           {
-            echo "Terraform Plan Output:"
             echo '```'
             echo "$plan_output"
             echo '```'

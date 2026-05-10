@@ -94,6 +94,8 @@ jobs:
           exit 1
       - name: Apply plan
         if: steps.compare_plans.outputs.exit_code == '0'
+        env:
+          GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
         run: |
           output=$(terraform apply -auto-approve existing.tfplan)
           {

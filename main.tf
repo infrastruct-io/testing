@@ -20,14 +20,12 @@ provider "aws" {
   ]
 }
 
-
 resource "aws_s3_bucket" "test" {
   bucket = "test-bucket-139727352662-eu-west-1"
   tags = {
     Environment = "Test"
   }
 }
-
 
 resource "aws_s3_bucket_public_access_block" "test" {
   bucket                  = aws_s3_bucket.test.id
